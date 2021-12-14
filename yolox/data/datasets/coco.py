@@ -140,9 +140,8 @@ class COCODataset(Dataset):
         for ix, obj in enumerate(objs):
             cls = self.class_ids.index(obj["category_id"])
             res[ix, 0:4] = obj["clean_bbox"]
+            res[ix, 4] = cls
 
-            # #9类变2类
-            # res[ix, 4] = cls == 8
             # #tag lyx
             self.cls_nums_list[cls] += 1
             
