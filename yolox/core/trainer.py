@@ -51,16 +51,18 @@ class Trainer:
         self.data_type = torch.float16 if args.fp16 else torch.float32
         self.input_size = exp.input_size
         self.best_ap = 0
-
+    
+        #tag lyx
+        self.fix_lr = False
         # metric record
         self.meter = MeterBuffer(window_size=exp.print_interval)
         self.file_name = os.path.join(exp.output_dir, args.experiment_name)
-
+        self.timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         if self.rank == 0:
             os.makedirs(self.file_name, exist_ok=True)
 
         setup_logger(
-            self.file_name,
+            os.path.join(self.file_name,self.timestamp),
             distributed_rank=self.rank,
             filename="train_log.txt",
             mode="a",
@@ -68,12 +70,12 @@ class Trainer:
 
     def train(self):
         self.before_train()
-        try:
-            self.train_in_epoch()
-        except Exception:
-            raise
-        finally:
-            self.after_train()
+        # try:
+        self.train_in_epoch()
+        # except Exception:
+        #     print(1)
+        # finally:
+        self.after_train()
 
     def train_in_epoch(self):
         for self.epoch in range(self.start_epoch, self.max_epoch):
@@ -109,8 +111,11 @@ class Trainer:
 
         if self.use_model_ema:
             self.ema_model.update(self.model)
-
-        lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
+        
+        if not self.fix_lr:
+            lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
+        else: 
+            lr = 2e-4 *  ((self.max_epoch - self.epoch - 1) / self.max_epoch) ** 2
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
 
@@ -129,17 +134,44 @@ class Trainer:
         # model related init
         torch.cuda.set_device(self.local_rank)
         model = self.exp.get_model()
-        logger.info(
-            "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
-        )
+        # logger.info(
+        #     "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
+        # )
         model.to(self.device)
 
+        # value of epoch will be set in `resume_train`
+        self.model = self.resume_train(model)
+        
         # solver related init
         self.optimizer = self.exp.get_optimizer(self.args.batch_size)
 
-        # value of epoch will be set in `resume_train`
-        model = self.resume_train(model)
+        #tag lyx
+        if self.args.finetune:
+            #freeze backbone
+            # for param in model.backbone.parameters():
+            #     param.requires_grad = False
+            
+            # # freeze stem
+            # for param in model.head.stems.parameters():
+            #     param.requires_grad = False
 
+            # freeze reg 
+            # for param in model.head.reg_convs.parameters():
+            #     param.requires_grad = False
+            # for param in model.head.reg_preds.parameters():
+            #     param.requires_grad = False
+
+            # freeze cls
+            # for param in model.head.cls_convs.parameters():
+            #     param.requires_grad = False
+            # for param in model.head.cls_preds.parameters():
+            #     param.requires_grad = False
+            
+            #freeze obj
+            # for param in model.head.obj_preds.parameters():
+            #     param.requires_grad = False
+            pass
+    
         # data related init
         self.no_aug = self.start_epoch >= self.max_epoch - self.exp.no_aug_epochs
         self.train_loader = self.exp.get_data_loader(
@@ -158,26 +190,32 @@ class Trainer:
         )
         if self.args.occupy:
             occupy_mem(self.local_rank)
+       
+        self.model.train()
+        # model.backbone.eval()
+        # model.head.reg_convs.eval()
+        # model.head.reg_preds.eval()
+        # model.head.stems.eval()
+        # model.head.obj_preds.eval()
 
         if self.is_distributed:
-            model = DDP(model, device_ids=[self.local_rank], broadcast_buffers=False)
+            self.model = DDP(self.model, device_ids=[self.local_rank], broadcast_buffers=False)
 
         if self.use_model_ema:
-            self.ema_model = ModelEMA(model, 0.9998)
+            self.ema_model = ModelEMA(self.model, 0.9998)
             self.ema_model.updates = self.max_iter * self.start_epoch
-
-        self.model = model
-        self.model.train()
 
         self.evaluator = self.exp.get_evaluator(
             batch_size=self.args.batch_size, is_distributed=self.is_distributed
         )
+
+
         # Tensorboard logger
         if self.rank == 0:
-            self.tblogger = SummaryWriter(self.file_name)
+            self.tblogger = SummaryWriter(os.path.join(self.file_name, self.timestamp) )
 
         logger.info("Training start...")
-        logger.info("\n{}".format(model))
+        # logger.info("\n{}".format(model))
 
     def after_train(self):
         logger.info(
@@ -196,8 +234,8 @@ class Trainer:
             else:
                 self.model.head.use_l1 = True
             self.exp.eval_interval = 1
-            if not self.no_aug:
-                self.save_ckpt(ckpt_name="last_mosaic_epoch")
+            # if not self.no_aug:
+            #     self.save_ckpt(ckpt_name="last_mosaic_epoch")
 
     def after_epoch(self):
         self.save_ckpt(ckpt_name="latest")
@@ -245,8 +283,17 @@ class Trainer:
                 )
                 + (", size: {:d}, {}".format(self.input_size[0], eta_str))
             )
+            #tag
+            # gpu0 gg here.
+            if self.rank == 0:
+                #log loss to tensorboard
+                for k, v in loss_meter.items():
+                    self.tblogger.add_scalar("loss/" + k, v.latest, self.progress_in_iter + 1)
+                
+                #log lr to tensorboard
+                self.tblogger.add_scalar("lr", self.meter['lr'].latest, self.progress_in_iter + 1)
+            
             self.meter.clear_meters()
-
         # random resizing
         if (self.progress_in_iter + 1) % 10 == 0:
             self.input_size = self.exp.random_resize(
@@ -266,9 +313,16 @@ class Trainer:
                 ckpt_file = self.args.ckpt
 
             ckpt = torch.load(ckpt_file, map_location=self.device)
+
+            #remove head
+            for key in list(ckpt['model'].keys()):
+                if key.startswith("head.cls"):
+                    del ckpt['model'][key]      
+
             # resume the model/optimizer state dict
-            model.load_state_dict(ckpt["model"])
-            self.optimizer.load_state_dict(ckpt["optimizer"])
+            model.load_state_dict(ckpt["model"], strict=False)
+
+            # self.optimizer.load_state_dict(ckpt["optimizer"])
             # resume the training states variables
             start_epoch = (
                 self.args.start_epoch - 1
@@ -286,9 +340,17 @@ class Trainer:
                 logger.info("loading checkpoint for fine tuning")
                 ckpt_file = self.args.ckpt
                 ckpt = torch.load(ckpt_file, map_location=self.device)["model"]
+                
+                #remove head
+                for key in list(ckpt.keys()):
+                    if key.startswith("head.cls_preds"):
+                        del ckpt[key]            
+
                 model = load_ckpt(model, ckpt)
+
             self.start_epoch = 0
 
+        # self.fix_lr = True
         return model
 
     def evaluate_and_save_model(self):
@@ -300,6 +362,7 @@ class Trainer:
                 evalmodel = evalmodel.module
 
         ap50_95, ap50, summary = self.exp.eval(
+
             evalmodel, self.evaluator, self.is_distributed
         )
         self.model.train()
@@ -308,14 +371,17 @@ class Trainer:
             self.tblogger.add_scalar("val/COCOAP50_95", ap50_95, self.epoch + 1)
             logger.info("\n" + summary)
         synchronize()
-
-        self.save_ckpt("last_epoch", ap50_95 > self.best_ap)
+        
+        #tag lyx
+        # self.save_ckpt(f"finetune_ibloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
+        # self.save_ckpt(f"finetune_eqloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
+        self.save_ckpt(f"epoch{self.epoch}_ap{ap50}", ap50_95 > self.best_ap)
         self.best_ap = max(self.best_ap, ap50_95)
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False):
         if self.rank == 0:
             save_model = self.ema_model.ema if self.use_model_ema else self.model
-            logger.info("Save weights to {}".format(self.file_name))
+            logger.info("Save weights to {}".format(self.file_name + ckpt_name))
             ckpt_state = {
                 "start_epoch": self.epoch + 1,
                 "model": save_model.state_dict(),

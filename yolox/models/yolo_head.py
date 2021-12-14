@@ -8,10 +8,11 @@ from loguru import logger
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from yolox.utils import bboxes_iou
 
-from .losses import IOUloss
+from .losses import EQloss, IOUloss, IBLoss
 from .network_blocks import BaseConv, DWConv
 
 
@@ -24,6 +25,7 @@ class YOLOXHead(nn.Module):
         in_channels=[256, 512, 1024],
         act="silu",
         depthwise=False,
+        exp = None
     ):
         """
         Args:
@@ -36,6 +38,9 @@ class YOLOXHead(nn.Module):
         self.num_classes = num_classes
         self.decode_in_inference = True  # for deploy, set to False
 
+        #tag contr
+        # self.memory_bank = torch.nn.
+
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
         self.cls_preds = nn.ModuleList()
@@ -44,7 +49,7 @@ class YOLOXHead(nn.Module):
         self.stems = nn.ModuleList()
         Conv = DWConv if depthwise else BaseConv
 
-        for i in range(len(in_channels)):
+        for i in range(len(in_channels)):#对每个尺度的特征图
             self.stems.append(
                 BaseConv(
                     in_channels=int(in_channels[i] * width),
@@ -125,10 +130,19 @@ class YOLOXHead(nn.Module):
         self.use_l1 = False
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
+
         self.iou_loss = IOUloss(reduction="none")
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
 
+        #tag lyx
+        self.use_ib = False
+        self.ib_loss = None
+
+        self.use_eq = False
+        self.eq_loss = None
+
+        self.exp = exp
     def initialize_biases(self, prior_prob):
         for conv in self.cls_preds:
             b = conv.bias.view(self.n_anchors, -1)
@@ -142,10 +156,18 @@ class YOLOXHead(nn.Module):
 
     def forward(self, xin, labels=None, imgs=None):
         outputs = []
-        origin_preds = []
+        origin_reg_preds = []
         x_shifts = []
         y_shifts = []
         expanded_strides = []
+        
+        #debug 
+        # cls_weights = self.cls_preds[0].weight
+        # for idx, cls_weight in enumerate(cls_weights):
+        #     print(f"class_{idx}, weight abs sum is {abs(cls_weight).sum()}")
+
+        #tag lyx
+        origin_cls_feats = []
 
         for k, (cls_conv, reg_conv, stride_this_level, x) in enumerate(
             zip(self.cls_convs, self.reg_convs, self.strides, xin)
@@ -154,12 +176,12 @@ class YOLOXHead(nn.Module):
             cls_x = x
             reg_x = x
 
-            cls_feat = cls_conv(cls_x)
-            cls_output = self.cls_preds[k](cls_feat)
+            cls_feat = cls_conv(cls_x)#batch size*128*80*80
+            cls_output = self.cls_preds[k](cls_feat)#batch size*9*80*80
 
             reg_feat = reg_conv(reg_x)
-            reg_output = self.reg_preds[k](reg_feat)
-            obj_output = self.obj_preds[k](reg_feat)
+            reg_output = self.reg_preds[k](reg_feat)#batch size*4*80*80
+            obj_output = self.obj_preds[k](reg_feat)#batch sze*1*80*80
 
             if self.training:
                 output = torch.cat([reg_output, obj_output, cls_output], 1)
@@ -182,8 +204,11 @@ class YOLOXHead(nn.Module):
                     reg_output = reg_output.permute(0, 1, 3, 4, 2).reshape(
                         batch_size, -1, 4
                     )
-                    origin_preds.append(reg_output.clone())
+                    origin_reg_preds.append(reg_output.clone())
 
+                # if self.use_ib:
+                #     #tag lyx
+                #     origin_cls_feats.append(cls_feat.clone().permute(0, 2, 3, 1).reshape(batch_size, -1, 128))
             else:
                 output = torch.cat(
                     [reg_output, obj_output.sigmoid(), cls_output.sigmoid()], 1
@@ -199,7 +224,8 @@ class YOLOXHead(nn.Module):
                 expanded_strides,
                 labels,
                 torch.cat(outputs, 1),
-                origin_preds,
+                origin_reg_preds,
+                origin_cls_feats,
                 dtype=xin[0].dtype,
             )
         else:
@@ -258,12 +284,24 @@ class YOLOXHead(nn.Module):
         expanded_strides,
         labels,
         outputs,
-        origin_preds,
+        origin_reg_preds,
+        origin_cls_feats,
         dtype,
     ):
         bbox_preds = outputs[:, :, :4]  # [batch, n_anchors_all, 4]
         obj_preds = outputs[:, :, 4].unsqueeze(-1)  # [batch, n_anchors_all, 1]
         cls_preds = outputs[:, :, 5:]  # [batch, n_anchors_all, n_cls]
+
+        #tag lyx
+        # if self.use_ib:
+        #     assert self.exp is not None
+        #     self.ib_loss = self.get_IB_loss()
+            
+        #     origin_cls_feats = torch.cat(origin_cls_feats, 1)
+        
+        # if self.use_eq:
+        #     assert self.exp is not None
+        #     self.eq_loss = self.get_eq_loss()
 
         # calculate targets
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)  # number of objects
@@ -273,7 +311,7 @@ class YOLOXHead(nn.Module):
         y_shifts = torch.cat(y_shifts, 1)  # [1, n_anchors_all]
         expanded_strides = torch.cat(expanded_strides, 1)
         if self.use_l1:
-            origin_preds = torch.cat(origin_preds, 1)
+            origin_reg_preds = torch.cat(origin_reg_preds, 1)
 
         cls_targets = []
         reg_targets = []
@@ -390,19 +428,35 @@ class YOLOXHead(nn.Module):
         loss_obj = (
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
-        loss_cls = (
-            self.bcewithlog_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
+        
+        #tag lyx
+        if self.use_ib:
+            loss_cls = (
+                self.ib_loss(
+                    cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets, origin_cls_feats.view(-1, 128)[fg_masks]
+                )
+            ) * 1.0
+            
+        elif self.use_eq:
+            loss_cls = (
+                self.eq_loss(
+                    cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+                )
+            ) * 2.0
+        else:
+            loss_cls = (
+                self.bcewithlog_loss(
+                    cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+                )
+            ).sum() / num_fg
         if self.use_l1:
             loss_l1 = (
-                self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)
+                self.l1_loss(origin_reg_preds.view(-1, 4)[fg_masks], l1_targets)
             ).sum() / num_fg
         else:
             loss_l1 = 0.0
 
-        reg_weight = 5.0
+        reg_weight = 2.0
         loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
 
         return (
@@ -420,6 +474,23 @@ class YOLOXHead(nn.Module):
         l1_target[:, 2] = torch.log(gt[:, 2] / stride + eps)
         l1_target[:, 3] = torch.log(gt[:, 3] / stride + eps)
         return l1_target
+
+    def get_eq_loss(self):
+        if self.eq_loss is None:
+            self.cls_num_list = self.exp.get_cls_num_list()
+            self.cls_ratio = self.cls_num_list / sum(self.cls_num_list)
+            self.eq_loss = EQloss(self.cls_ratio)
+        return self.eq_loss
+
+    def get_IB_loss(self):
+        if self.ib_loss is None:
+            self.cls_num_list = self.exp.get_cls_num_list()
+            per_cls_weights = 1.0 / np.array(self.cls_num_list)
+            per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self.cls_num_list)
+            per_cls_weights = torch.FloatTensor(per_cls_weights).cuda()
+
+            self.ib_loss =IBLoss(weight=per_cls_weights)
+        return self.ib_loss
 
     @torch.no_grad()
     def get_assignments(

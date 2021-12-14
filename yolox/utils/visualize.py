@@ -4,8 +4,26 @@
 
 import cv2
 import numpy as np
-
+from PIL import Image, ImageDraw, ImageFont
 __all__ = ["vis"]
+import cv2
+from PIL import Image,ImageDraw,ImageFont
+import numpy as np
+ 
+#封装函数
+def cv2AddChineseText(img, text, position, textColor=(0, 255, 0), font_size=30):
+    if (isinstance(img, np.ndarray)):  # 判断是否OpenCV图片类型
+        img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    # 创建一个可以在给定图像上绘图的对象
+    draw = ImageDraw.Draw(img)
+    # 字体的格式
+    fontStyle = ImageFont.truetype(
+        "simhei.ttf", font_size, encoding="utf-8")
+    # 绘制文本
+    draw.text(position, text, textColor, font=fontStyle)
+    # 转换回OpenCV格式
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+ 
 
 
 def vis(img, boxes, scores, cls_ids, conf=0.5, class_names=None):
@@ -23,21 +41,22 @@ def vis(img, boxes, scores, cls_ids, conf=0.5, class_names=None):
 
         color = (_COLORS[cls_id] * 255).astype(np.uint8).tolist()
         text = '{}:{:.1f}%'.format(class_names[cls_id], score * 100)
-        txt_color = (0, 0, 0) if np.mean(_COLORS[cls_id]) > 0.5 else (255, 255, 255)
+        # txt_color = (0, 0, 0) if np.mean(_COLORS[cls_id]) > 0.5 else (255, 255, 255)
         font = cv2.FONT_HERSHEY_SIMPLEX
 
-        txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+        # txt_size = cv2.getTextSize(text, font, 0.4, 1)[0] #(txt_width, txt_height)
         cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
 
-        txt_bk_color = (_COLORS[cls_id] * 255 * 0.7).astype(np.uint8).tolist()
-        cv2.rectangle(
-            img,
-            (x0, y0 + 1),
-            (x0 + txt_size[0] + 1, y0 + int(1.5*txt_size[1])),
-            txt_bk_color,
-            -1
-        )
-        cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+        # txt_bk_color = (_COLORS[cls_id] * 255 * 0.7).astype(np.uint8).tolist()
+        # cv2.rectangle(
+        #     img,
+        #     (x0, y0 + 1),
+        #     (x0 + txt_size[0] + 1, y0 + int(1.5*txt_size[1])),
+        #     txt_bk_color,
+        #     -1
+        # )
+        # cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+        img  = cv2AddChineseText(img, text, (x0, y0 - 20), (255, 0, 0), font_size=20)
 
     return img
 

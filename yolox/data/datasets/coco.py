@@ -51,6 +51,9 @@ class COCODataset(Dataset):
         self.name = name
         self.img_size = img_size
         self.preproc = preproc
+        
+        #tag lyx
+        self.cls_nums_list = np.zeros(len(self._classes))
         self.annotations = self._load_coco_annotations()
         if cache:
             self._cache_images()
@@ -63,6 +66,7 @@ class COCODataset(Dataset):
 
     def _load_coco_annotations(self):
         return [self.load_anno_from_ids(_ids) for _ids in self.ids]
+
 
     def _cache_images(self):
         logger.warning(
@@ -136,8 +140,12 @@ class COCODataset(Dataset):
         for ix, obj in enumerate(objs):
             cls = self.class_ids.index(obj["category_id"])
             res[ix, 0:4] = obj["clean_bbox"]
-            res[ix, 4] = cls
 
+            # #9类变2类
+            # res[ix, 4] = cls == 8
+            # #tag lyx
+            self.cls_nums_list[cls] += 1
+            
         r = min(self.img_size[0] / height, self.img_size[1] / width)
         res[:, :4] *= r
 

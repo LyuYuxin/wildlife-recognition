@@ -112,6 +112,7 @@ class Exp(BaseExp):
                 data_dir=self.data_dir,
                 json_file=self.train_ann,
                 img_size=self.input_size,
+                name='images',
                 preproc=TrainTransform(
                     max_labels=50,
                     flip_prob=self.flip_prob,
@@ -219,7 +220,7 @@ class Exp(BaseExp):
             )  # add pg1 with weight_decay
             optimizer.add_param_group({"params": pg2})
             self.optimizer = optimizer
-
+                                                                                                          
         return self.optimizer
 
     def get_lr_scheduler(self, lr, iters_per_epoch):
@@ -243,7 +244,7 @@ class Exp(BaseExp):
         valdataset = COCODataset(
             data_dir=self.data_dir,
             json_file=self.val_ann if not testdev else "image_info_test-dev2017.json",
-            name="val2017" if not testdev else "test2017",
+            name="images" if not testdev else "test2017",
             img_size=self.test_size,
             preproc=ValTransform(legacy=legacy),
         )
