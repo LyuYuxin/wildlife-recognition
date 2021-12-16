@@ -13,3 +13,14 @@ class Exp(MyExp):
         self.depth = 0.67
         self.width = 0.75
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
+        # Define yourself dataset path
+        self.data_dir = "/home/lyx/Codes/New Data/"
+        self.train_ann = "train_annotations.json"
+        self.val_ann = "val_annotations.json"
+
+        self.num_classes = 9
+
+        self.max_epoch = 100
+        self.data_num_workers = 8
+        self.eval_interval = 1
+        self.input_size = (640, 640)

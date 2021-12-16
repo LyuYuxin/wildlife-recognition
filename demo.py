@@ -6,18 +6,28 @@ import argparse
 import os
 import time
 from loguru import logger
-
+from numpy.core.fromnumeric import reshape
+from torch.utils.tensorboard import SummaryWriter
 import cv2
-
+import numpy as np
 import torch
 
 from yolox.data.data_augment import ValTransform
-from yolox.data.datasets import COCO_CLASSES
 from yolox.exp import get_exp
 from yolox.utils import fuse_model, get_model_info, postprocess, vis
-
+import json
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
+with open("datasets/classes2.json", 'r') as f:
+    CLASSES = list(json.load(f).keys())
+
+
+vis_folder = "YOLOX_outputs/yolox_s/vis_res"
+current_time = time.localtime()
+save_folder = os.path.join(
+    vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
+)
+tblogger = SummaryWriter(save_folder)
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX Demo!")
@@ -36,6 +46,11 @@ def make_parser():
         action="store_true",
         help="whether to save the inference result of image/video",
     )
+    # parser.add_argument(
+    #     "--save_as_video",
+    #     action="store_true",
+    #     help="whether to save the inference result of images as video format"
+    # )
 
     # exp file
     parser.add_argument(
@@ -102,7 +117,7 @@ class Predictor(object):
         self,
         model,
         exp,
-        cls_names=COCO_CLASSES,
+        cls_names=CLASSES,
         trt_file=None,
         decoder=None,
         device="cpu",
@@ -134,6 +149,8 @@ class Predictor(object):
         if isinstance(img, str):
             img_info["file_name"] = os.path.basename(img)
             img = cv2.imread(img)
+            if img is None:
+                raise ValueError("broken img")
         else:
             img_info["file_name"] = None
 
@@ -184,7 +201,7 @@ class Predictor(object):
         return vis_res
 
 
-def image_demo(predictor, vis_folder, path, current_time, save_result):
+def image_demo(predictor, path, save_result):     
     if os.path.isdir(path):
         files = get_image_list(path)
     else:
@@ -194,26 +211,18 @@ def image_demo(predictor, vis_folder, path, current_time, save_result):
         outputs, img_info = predictor.inference(image_name)
         result_image = predictor.visual(outputs[0], img_info, predictor.confthre)
         if save_result:
-            save_folder = os.path.join(
-                vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-            )
             os.makedirs(save_folder, exist_ok=True)
             save_file_name = os.path.join(save_folder, os.path.basename(image_name))
             logger.info("Saving detection result in {}".format(save_file_name))
             cv2.imwrite(save_file_name, result_image)
-        ch = cv2.waitKey(0)
-        if ch == 27 or ch == ord("q") or ch == ord("Q"):
-            break
+        tblogger.add_image(image_name,  result_image, dataformats="HWC")
 
-
-def imageflow_demo(predictor, vis_folder, current_time, args):
+def imageflow_demo(predictor, args):
     cap = cv2.VideoCapture(args.path if args.demo == "video" else args.camid)
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)  # float
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)  # float
     fps = cap.get(cv2.CAP_PROP_FPS)
-    save_folder = os.path.join(
-        vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-    )
+
     os.makedirs(save_folder, exist_ok=True)
     if args.demo == "video":
         save_path = os.path.join(save_folder, args.path.split("/")[-1])
@@ -230,9 +239,10 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
             result_frame = predictor.visual(outputs[0], img_info, predictor.confthre)
             if args.save_result:
                 vid_writer.write(result_frame)
-            ch = cv2.waitKey(1)
-            if ch == 27 or ch == ord("q") or ch == ord("Q"):
-                break
+            # tblogger.add_image(args.path, result_frame, dataformats="HWC")
+            # ch = cv2.waitKey(1)
+            # if ch == 27 or ch == ord("q") or ch == ord("Q"):
+            #     break
         else:
             break
 
@@ -276,9 +286,14 @@ def main(exp, args):
         else:
             ckpt_file = args.ckpt
         logger.info("loading checkpoint")
-        ckpt = torch.load(ckpt_file, map_location="cpu")
+        ckpt = torch.load(ckpt_file, map_location='cpu')
+
+        #remove 'module.' for distributed model ckpt
+        keys = [key[7:] for key in  ckpt['model'].keys()]
+        
+        single_ckpt = dict(zip(keys, ckpt['model'].values()))
         # load the model state dict
-        model.load_state_dict(ckpt["model"])
+        model.load_state_dict(single_ckpt)
         logger.info("loaded checkpoint done.")
 
     if args.fuse:
@@ -299,18 +314,16 @@ def main(exp, args):
         decoder = None
 
     predictor = Predictor(
-        model, exp, COCO_CLASSES, trt_file, decoder,
+        model, exp, CLASSES, trt_file, decoder,
         args.device, args.fp16, args.legacy,
     )
-    current_time = time.localtime()
     if args.demo == "image":
-        image_demo(predictor, vis_folder, args.path, current_time, args.save_result)
+        image_demo(predictor, args.path, args.save_result)
     elif args.demo == "video" or args.demo == "webcam":
-        imageflow_demo(predictor, vis_folder, current_time, args)
+        imageflow_demo(predictor, args)
 
 
 if __name__ == "__main__":
     args = make_parser().parse_args()
     exp = get_exp(args.exp_file, args.name)
-
     main(exp, args)

@@ -208,3 +208,20 @@ class Focus(nn.Module):
             dim=1,
         )
         return self.conv(x)
+
+
+class SE(nn.Module):
+    def __init__(self, in_channel) -> None:
+        super().__init__()
+        hidden_dim = in_channel // 2
+
+        self.layers = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1), #GAP layer
+            nn.Linear(in_channel, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, in_channel),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        return self.layers(x)
