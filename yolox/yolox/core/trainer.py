@@ -115,7 +115,8 @@ class Trainer:
         if not self.fix_lr:
             lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
         else: 
-            lr = 2e-4 *  ((self.max_epoch - self.epoch - 1) / self.max_epoch) ** 2
+            # lr = 2e-4 *  ((self.max_epoch - self.epoch - 1) / self.max_epoch) ** 2
+            lr = 2.5e-4
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
 
@@ -315,9 +316,9 @@ class Trainer:
             ckpt = torch.load(ckpt_file, map_location=self.device)
 
             #remove head
-            for key in list(ckpt['model'].keys()):
-                if key.startswith("head.cls"):
-                    del ckpt['model'][key]      
+            # for key in list(ckpt['model'].keys()):
+            #     if key.startswith("head.cls"):
+            #         del ckpt['model'][key]      
 
             # resume the model/optimizer state dict
             model.load_state_dict(ckpt["model"], strict=False)
@@ -342,9 +343,9 @@ class Trainer:
                 ckpt = torch.load(ckpt_file, map_location=self.device)["model"]
                 
                 #remove head
-                for key in list(ckpt.keys()):
-                    if key.startswith("head.cls_preds"):
-                        del ckpt[key]            
+                # for key in list(ckpt.keys()):
+                #     if key.startswith("head.cls_preds"):
+                #         del ckpt[key]            
 
                 model = load_ckpt(model, ckpt)
 

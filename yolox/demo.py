@@ -286,15 +286,14 @@ def main(exp, args):
         else:
             ckpt_file = args.ckpt
         logger.info("loading checkpoint")
-        ckpt = torch.load(ckpt_file, map_location="cpu")
+        ckpt = torch.load(ckpt_file, map_location='cpu')
+
+        #remove 'module.' for distributed model ckpt
+        keys = [key[7:] for key in  ckpt['model'].keys()]
+        
+        single_ckpt = dict(zip(keys, ckpt['model'].values()))
         # load the model state dict
-        ckpt = ckpt['model']
-
-        for key in list(ckpt.keys()):
-            if key.startswith("head.cls_preds"):
-                del ckpt[key]
-
-        model.load_state_dict(ckpt, strict=False)
+        model.load_state_dict(single_ckpt)
         logger.info("loaded checkpoint done.")
 
     if args.fuse:
