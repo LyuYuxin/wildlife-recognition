@@ -93,9 +93,12 @@ class Bottleneck(nn.Module):
         self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
         self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
         self.use_add = shortcut and in_channels == out_channels
+        # self.SElayer = SE(out_channels)
 
     def forward(self, x):
         y = self.conv2(self.conv1(x))
+        # y = self.SElayer(y)
+
         if self.use_add:
             y = y + x
         return y
@@ -118,6 +121,25 @@ class ResLayer(nn.Module):
         out = self.layer2(self.layer1(x))
         return x + out
 
+class ResLayerSE(nn.Module):
+    " Residual layer with SE Module."
+
+    def __init__(self, in_channels: int) -> None:
+        super().__init__()
+        mid_channels = in_channels // 2
+        self.layer1 = BaseConv(
+            in_channels, mid_channels, ksize=1, stride=1, act='lrelu'
+        )
+        self.layer2 = BaseConv(
+            mid_channels, in_channels, ksize=3, stride=3, act='lrelu'
+        )
+        
+        self.SElayer = SE(in_channels)
+    
+    def forward(self, x):
+        out = self.layer2(self.layer1(x))
+
+        return x + self.SElayer(out)
 
 class SPPBottleneck(nn.Module):
     """Spatial pyramid pooling layer used in YOLOv3-SPP"""
@@ -184,7 +206,6 @@ class CSPLayer(nn.Module):
         x = torch.cat((x_1, x_2), dim=1)
         return self.conv3(x)
 
-
 class Focus(nn.Module):
     """Focus width and height information into channel space."""
 
@@ -211,12 +232,13 @@ class Focus(nn.Module):
 
 
 class SE(nn.Module):
-    def __init__(self, in_channel) -> None:
+    def __init__(self, in_channel, reduction=16) -> None:
         super().__init__()
-        hidden_dim = in_channel // 2
+        hidden_dim = in_channel // reduction
 
-        self.layers = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1), #GAP layer
+        self.gap = nn.AdaptiveAvgPool2d(1)#GAP layer
+
+        self.fclayers = nn.Sequential(
             nn.Linear(in_channel, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, in_channel),
@@ -224,4 +246,8 @@ class SE(nn.Module):
         )
     
     def forward(self, x):
-        return self.layers(x)
+        B, C, _, _ = x.shape
+        y = self.gap(x).view(B, C)
+        attention = self.fclayers(y).view(B, C, 1, 1)
+        return x * attention.expand_as(x)
+

@@ -24,9 +24,10 @@ class Exp(MyExp):
         # self.train_ann = "luxin_train.json"
         # self.val_ann = "luxin_val.json"
         self.num_classes = 2
+        self.no_aug_epochs = 25
 
         self.ema = False
-        self.max_epoch = 250
+        self.max_epoch = 300
         self.data_num_workers = 8
         self.eval_interval = 1
         self.input_size = (640, 640)

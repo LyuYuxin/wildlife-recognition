@@ -4,7 +4,7 @@
 
 from torch import nn
 
-from .network_blocks import BaseConv, CSPLayer, DWConv, Focus, ResLayer, SPPBottleneck
+from .network_blocks import SE, BaseConv, CSPLayer, DWConv, Focus, ResLayer, SPPBottleneck, ResLayerSE
 
 
 class Darknet(nn.Module):
@@ -114,6 +114,9 @@ class CSPDarknet(nn.Module):
         # stem
         self.stem = Focus(3, base_channels, ksize=3, act=act)
 
+        # SE lyx
+        self.se1 = SE(base_channels)
+
         # dark2
         self.dark2 = nn.Sequential(
             Conv(base_channels, base_channels * 2, 3, 2, act=act),
@@ -124,6 +127,8 @@ class CSPDarknet(nn.Module):
                 depthwise=depthwise,
                 act=act,
             ),
+            #SE lyx
+            SE(base_channels * 2)
         )
 
         # dark3
@@ -136,6 +141,8 @@ class CSPDarknet(nn.Module):
                 depthwise=depthwise,
                 act=act,
             ),
+            #SE lyx
+            SE(base_channels * 4)
         )
 
         # dark4
@@ -148,6 +155,8 @@ class CSPDarknet(nn.Module):
                 depthwise=depthwise,
                 act=act,
             ),
+            #SE lyx
+            SE(base_channels * 8)
         )
 
         # dark5
@@ -162,12 +171,16 @@ class CSPDarknet(nn.Module):
                 depthwise=depthwise,
                 act=act,
             ),
+            #SE lyx
+            SE(base_channels * 16)
         )
 
     def forward(self, x):
         outputs = {}
         x = self.stem(x)
         outputs["stem"] = x
+        #tag lyx
+        x = self.se1(x)
         x = self.dark2(x)
         outputs["dark2"] = x
         x = self.dark3(x)

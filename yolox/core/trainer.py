@@ -142,10 +142,10 @@ class Trainer:
 
         # value of epoch will be set in `resume_train`
         self.model = self.resume_train(model)
-        
+
         # solver related init
         self.optimizer = self.exp.get_optimizer(self.args.batch_size)
-
+        
         #tag lyx
         if self.args.finetune:
             #freeze backbone
@@ -315,6 +315,11 @@ class Trainer:
             #         del ckpt['model'][key]      
 
             # resume the model/optimizer state dict
+            if self.is_distributed:
+                keys = [key[7:] for key in  ckpt['model'].keys()]
+            
+                ckpt["model"] = dict(zip(keys, ckpt['model'].values()))
+
             model.load_state_dict(ckpt["model"], strict=False)
 
             # self.optimizer.load_state_dict(ckpt["optimizer"])
@@ -356,22 +361,32 @@ class Trainer:
             if is_parallel(evalmodel):
                 evalmodel = evalmodel.module
 
-        ap50_95, ap50, summary = self.exp.eval(
-
+        stats, summary = self.exp.eval(
             evalmodel, self.evaluator, self.is_distributed
         )
+        #默认记录det=100
+        (mAP, AP50, AP75, mAP_small, mAP_mid, mAP_large,\
+        _, _, mAR, mAR_small, mAR_mid, mAR_large) = stats
         self.model.train()
         if self.rank == 0:
-            self.tblogger.add_scalar("val/COCOAP50", ap50, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCOAP50_95", ap50_95, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCOAP50", AP50, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCOAP75", AP75, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCOAP_all", mAP, self.epoch + 1)  
+
+            self.tblogger.add_scalar("val/COCO_mAP_small", mAP_small, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCO_mAP_mid", mAP_mid, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCO_mAP_large", mAP_large, self.epoch + 1)
+
+            self.tblogger.add_scalar("val/COCO_mAR", mAR, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCO_mAR_small", mAR_small, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCO_mAR_mid", mAR_mid, self.epoch + 1)
+            self.tblogger.add_scalar("val/COCO_mAR_large", mAR_large, self.epoch + 1)
+
             logger.info("\n" + summary)
         synchronize()
         
-        #tag lyx
-        # self.save_ckpt(f"finetune_ibloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
-        # self.save_ckpt(f"finetune_eqloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
-        self.save_ckpt(f"epoch{self.epoch}_ap{ap50}", ap50_95 > self.best_ap)
-        self.best_ap = max(self.best_ap, ap50_95)
+        self.save_ckpt(f"epoch{self.epoch}_ap{AP50}", mAP > self.best_ap)
+        self.best_ap = max(self.best_ap, mAP)
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False):
         if self.rank == 0:

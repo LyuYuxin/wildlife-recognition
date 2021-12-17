@@ -216,6 +216,6 @@ class COCOEvaluator:
             with contextlib.redirect_stdout(redirect_string):
                 cocoEval.summarize()
             info += redirect_string.getvalue()
-            return cocoEval.stats[0], cocoEval.stats[1], info
+            return cocoEval.stats, info
         else:
-            return 0, 0, info
+            return 0, info

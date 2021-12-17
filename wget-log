@@ -1,11 +1,0 @@
---2021-12-15 15:12:15--  https://gimg2.baidu.com/image_search/src=http%3A%2F%2Fi0.sinaimg.cn%2Ftravel%2F2015%2F0530%2FU11604P704DT20150530193857.jpg
-Resolving gimg2.baidu.com (gimg2.baidu.com)... 218.93.204.36, 240e:b1:9801:102::7cee:f124, 240e:b1:8805:202::7cec:6824, ...
-Connecting to gimg2.baidu.com (gimg2.baidu.com)|218.93.204.36|:443... connected.
-HTTP request sent, awaiting response... 200 OK
-Length: 47837 (47K) [image/jpeg]
-Saving to: ‘src=http:%2F%2Fi0.sinaimg.cn%2Ftravel%2F2015%2F0530%2FU11604P704DT20150530193857.jpg’
-
-                        src=http:%2F%2Fi0.sinai   0%[                                                                                                      ]       0  --.-KB/s               src=http:%2F%2Fi0.sinaimg.cn%2Ftravel%2F2015%2F 100%[=====================================================================================================>]  46.72K  --.-KB/s    in 0.01s   
-
-2021-12-15 15:12:15 (3.67 MB/s) - ‘src=http:%2F%2Fi0.sinaimg.cn%2Ftravel%2F2015%2F0530%2FU11604P704DT20150530193857.jpg’ saved [47837/47837]
-
