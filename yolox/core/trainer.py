@@ -134,18 +134,18 @@ class Trainer:
 
         # model related init
         torch.cuda.set_device(self.local_rank)
-        model = self.exp.get_model()
+        self.model = self.exp.get_model()
         # logger.info(
         #     "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
         # )
-        model.to(self.device)
+        self.model.to(self.device)
 
         # value of epoch will be set in `resume_train`
-        self.model = self.resume_train(model)
+        self.model = self.resume_train(self.model)
 
         # solver related init
         self.optimizer = self.exp.get_optimizer(self.args.batch_size)
-        
+
         #tag lyx
         if self.args.finetune:
             #freeze backbone
@@ -362,29 +362,32 @@ class Trainer:
                 evalmodel = evalmodel.module
 
         stats, summary = self.exp.eval(
+
             evalmodel, self.evaluator, self.is_distributed
         )
-        #默认记录det=100
         (mAP, AP50, AP75, mAP_small, mAP_mid, mAP_large,\
-        _, _, mAR, mAR_small, mAR_mid, mAR_large) = stats
+            _, _, mAR, mAR_small, mAR_mid, mAR_large) = stats
+
         self.model.train()
         if self.rank == 0:
-            self.tblogger.add_scalar("val/COCOAP50", AP50, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCOAP75", AP75, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCOAP_all", mAP, self.epoch + 1)  
+            self.tblogger.add_scalar("val/mAP", mAP, self.epoch + 1)
+            self.tblogger.add_scalar("val/AP50", AP50, self.epoch + 1)
+            self.tblogger.add_scalar("val/AP75", AP75, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAP_small", mAP_small, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAP_mid", mAP_mid, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAP_large", mAP_large, self.epoch + 1)
 
-            self.tblogger.add_scalar("val/COCO_mAP_small", mAP_small, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCO_mAP_mid", mAP_mid, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCO_mAP_large", mAP_large, self.epoch + 1)
-
-            self.tblogger.add_scalar("val/COCO_mAR", mAR, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCO_mAR_small", mAR_small, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCO_mAR_mid", mAR_mid, self.epoch + 1)
-            self.tblogger.add_scalar("val/COCO_mAR_large", mAR_large, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAR", mAR, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAR_small", mAR_small, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAR_mid", mAR_mid, self.epoch + 1)
+            self.tblogger.add_scalar("val/mAR_large", mAR_large, self.epoch + 1)
 
             logger.info("\n" + summary)
         synchronize()
         
+        #tag lyx
+        # self.save_ckpt(f"finetune_ibloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
+        # self.save_ckpt(f"finetune_eqloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
         self.save_ckpt(f"epoch{self.epoch}_ap{AP50}", mAP > self.best_ap)
         self.best_ap = max(self.best_ap, mAP)
 
