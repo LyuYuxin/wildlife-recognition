@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 # Copyright (c) 2014-2021 Megvii Inc. All rights reserved.
 
+from typing import ForwardRef
 import torch
 import torch.nn as nn
 
@@ -93,7 +94,6 @@ class Bottleneck(nn.Module):
         self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
         self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
         self.use_add = shortcut and in_channels == out_channels
-        # self.SElayer = SE(out_channels)
 
     def forward(self, x):
         y = self.conv2(self.conv1(x))
@@ -251,3 +251,12 @@ class SE(nn.Module):
         attention = self.fclayers(y).view(B, C, 1, 1)
         return x * attention.expand_as(x)
 
+class shortcutSE(SE):
+    def __init__(self, in_channel, reduction=16) -> None:
+        super().__init__(in_channel, reduction=reduction)
+
+    def forward(self, x):
+        B, C, _, _ = x.shape
+        y = self.gap(x).view(B, C)
+        attention = self.fclayers(y).view(B, C, 1, 1)
+        return x * attention.expand_as(x) + x

@@ -13,7 +13,7 @@ import numpy as np
 from yolox.utils import bboxes_iou
 
 from .losses import EQloss, IOUloss, IBLoss
-from .network_blocks import BaseConv, DWConv
+from .network_blocks import BaseConv, DWConv, SE, shortcutSE
 
 
 class YOLOXHead(nn.Module):
@@ -62,6 +62,8 @@ class YOLOXHead(nn.Module):
             self.cls_convs.append(
                 nn.Sequential(
                     *[
+                        #tag lyx
+                        shortcutSE(int(256 * width)),
                         Conv(
                             in_channels=int(256 * width),
                             out_channels=int(256 * width),
@@ -76,6 +78,8 @@ class YOLOXHead(nn.Module):
                             stride=1,
                             act=act,
                         ),
+                        #tag lyx
+                        shortcutSE(int(256 * width))
                     ]
                 )
             )

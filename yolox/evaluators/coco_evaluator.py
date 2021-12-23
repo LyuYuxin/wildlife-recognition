@@ -166,7 +166,7 @@ class COCOEvaluator:
 
     def evaluate_prediction(self, data_dict, statistics):
         if not is_main_process():
-            return 0, 0, None
+            return  0, None
 
         logger.info("Evaluate in main process...")
 

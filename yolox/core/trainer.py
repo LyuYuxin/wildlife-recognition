@@ -6,7 +6,7 @@ import datetime
 import os
 import time
 from loguru import logger
-
+import traceback
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -70,15 +70,19 @@ class Trainer:
 
     def train(self):
         self.before_train()
-        # try:
-        self.train_in_epoch()
-        # except Exception:
-        #     print(1)
-        # finally:
-        self.after_train()
+        try:
+            self.train_in_epoch()
+        except Exception:
+            print('*' * 50)
+            trace = traceback.format_exc() 
+            print(trace)
+            print('*' * 50)
+        finally:
+            self.after_train()
 
     def train_in_epoch(self):
         for self.epoch in range(self.start_epoch, self.max_epoch):
+
             self.before_epoch()
             self.train_in_iter()
             self.after_epoch()
@@ -135,9 +139,9 @@ class Trainer:
         # model related init
         torch.cuda.set_device(self.local_rank)
         self.model = self.exp.get_model()
-        # logger.info(
-        #     "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
-        # )
+        logger.info(
+            "Model Summary: {}".format(get_model_info(self.model, self.exp.test_size))
+        )
         self.model.to(self.device)
 
         # value of epoch will be set in `resume_train`
@@ -203,14 +207,12 @@ class Trainer:
         self.evaluator = self.exp.get_evaluator(
             batch_size=self.args.batch_size, is_distributed=self.is_distributed
         )
-
-
         # Tensorboard logger
         if self.rank == 0:
             self.tblogger = SummaryWriter(os.path.join(self.file_name, self.timestamp) )
 
         logger.info("Training start...")
-        # logger.info("\n{}".format(model))
+        # logger.info("\n{}".format(self.model))
 
     def after_train(self):
         logger.info(
@@ -279,7 +281,6 @@ class Trainer:
                 + (", size: {:d}, {}".format(self.input_size[0], eta_str))
             )
             #tag
-            # gpu0 gg here.
             if self.rank == 0:
                 #log loss to tensorboard
                 for k, v in loss_meter.items():
@@ -339,14 +340,17 @@ class Trainer:
             if self.args.ckpt is not None:
                 logger.info("loading checkpoint for fine tuning")
                 ckpt_file = self.args.ckpt
-                ckpt = torch.load(ckpt_file, map_location=self.device)["model"]
+                ckpt = torch.load(ckpt_file, map_location=self.device)
                 
                 #remove head
                 # for key in list(ckpt.keys()):
                 #     if key.startswith("head.cls_preds"):
                 #         del ckpt[key]            
-
-                model = load_ckpt(model, ckpt)
+                if self.is_distributed:
+                    keys = [key[7:] for key in  ckpt['model'].keys()]
+            
+                    ckpt["model"] = dict(zip(keys, ckpt['model'].values()))
+                model = load_ckpt(model, ckpt["model"])
 
             self.start_epoch = 0
 
@@ -362,11 +366,11 @@ class Trainer:
                 evalmodel = evalmodel.module
 
         stats, summary = self.exp.eval(
-
             evalmodel, self.evaluator, self.is_distributed
         )
-        (mAP, AP50, AP75, mAP_small, mAP_mid, mAP_large,\
-            _, _, mAR, mAR_small, mAR_mid, mAR_large) = stats
+        if self.rank==0:
+            (mAP, AP50, AP75, mAP_small, mAP_mid, mAP_large,\
+                _, _, mAR, mAR_small, mAR_mid, mAR_large) = stats
 
         self.model.train()
         if self.rank == 0:
@@ -383,15 +387,13 @@ class Trainer:
             self.tblogger.add_scalar("val/mAR_large", mAR_large, self.epoch + 1)
 
             logger.info("\n" + summary)
+            #tag lyx
+            # if mAP > self.best_ap:
+            self.save_ckpt(f"epoch{self.epoch}_ap{AP50}", mAP > self.best_ap)
+            self.best_ap = max(self.best_ap, mAP)
         synchronize()
         
-        #tag lyx
-        # self.save_ckpt(f"finetune_ibloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
-        # self.save_ckpt(f"finetune_eqloss_epoch{self.epoch - self.start_epoch}_{ap50}", ap50_95 > self.best_ap)
-        self.save_ckpt(f"epoch{self.epoch}_ap{AP50}", mAP > self.best_ap)
-        self.best_ap = max(self.best_ap, mAP)
-
-    def save_ckpt(self, ckpt_name, update_best_ckpt=False):
+    def save_ckpt(self, ckpt_name, is_best=False):
         if self.rank == 0:
             save_model = self.ema_model.ema if self.use_model_ema else self.model
             logger.info("Save weights to {}".format(self.file_name + ckpt_name))
@@ -402,7 +404,7 @@ class Trainer:
             }
             save_checkpoint(
                 ckpt_state,
-                update_best_ckpt,
+                is_best,
                 self.file_name,
                 ckpt_name,
             )

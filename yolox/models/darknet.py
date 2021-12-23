@@ -114,8 +114,8 @@ class CSPDarknet(nn.Module):
         # stem
         self.stem = Focus(3, base_channels, ksize=3, act=act)
 
-        # SE lyx
-        self.se1 = SE(base_channels)
+        # # SE lyx
+        # self.se1 = SE(base_channels)
 
         # dark2
         self.dark2 = nn.Sequential(
@@ -128,7 +128,7 @@ class CSPDarknet(nn.Module):
                 act=act,
             ),
             #SE lyx
-            SE(base_channels * 2)
+            # SE(base_channels * 2)
         )
 
         # dark3
@@ -142,7 +142,7 @@ class CSPDarknet(nn.Module):
                 act=act,
             ),
             #SE lyx
-            SE(base_channels * 4)
+            # SE(base_channels * 4)
         )
 
         # dark4
@@ -155,8 +155,8 @@ class CSPDarknet(nn.Module):
                 depthwise=depthwise,
                 act=act,
             ),
-            #SE lyx
-            SE(base_channels * 8)
+            # #SE lyx
+            # SE(base_channels * 8)
         )
 
         # dark5
@@ -172,7 +172,7 @@ class CSPDarknet(nn.Module):
                 act=act,
             ),
             #SE lyx
-            SE(base_channels * 16)
+            # SE(base_channels * 16)
         )
 
     def forward(self, x):
@@ -180,7 +180,7 @@ class CSPDarknet(nn.Module):
         x = self.stem(x)
         outputs["stem"] = x
         #tag lyx
-        x = self.se1(x)
+        # x = self.se1(x)
         x = self.dark2(x)
         outputs["dark2"] = x
         x = self.dark3(x)

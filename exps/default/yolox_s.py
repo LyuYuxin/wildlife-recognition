@@ -5,6 +5,7 @@
 import os
 from cv2 import RETR_CCOMP
 import torch.nn as nn
+from torch.nn.modules.module import T
 from yolox.exp import Exp as MyExp
 
 
@@ -24,13 +25,13 @@ class Exp(MyExp):
         # self.train_ann = "luxin_train.json"
         # self.val_ann = "luxin_val.json"
         self.num_classes = 2
-        self.no_aug_epochs = 25
+        self.no_aug_epochs = 20
 
         self.ema = False
         self.max_epoch = 300
         self.data_num_workers = 8
         self.eval_interval = 1
-        self.input_size = (640, 640)
+        self.input_size = (768, 768)
 
 
     def get_model(self):
@@ -44,7 +45,8 @@ class Exp(MyExp):
 
         if getattr(self, "model", None) is None:
             in_channels = [256, 512, 1024]
-            backbone = YOLOPAFPN(self.depth, self.width, in_channels=in_channels, act=self.act)
+            #tag lyx 
+            backbone = YOLOPAFPN(self.depth, self.width, in_channels=in_channels, depthwise=False, act=self.act)
             head = YOLOXHead(self.num_classes, self.width, in_channels=in_channels, act=self.act, exp=self)
 
             self.model = YOLOX(backbone, head)
