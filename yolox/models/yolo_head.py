@@ -63,7 +63,7 @@ class YOLOXHead(nn.Module):
                 nn.Sequential(
                     *[
                         #tag lyx
-                        shortcutSE(int(256 * width)),
+                        # shortcutSE(int(256 * width)),
                         Conv(
                             in_channels=int(256 * width),
                             out_channels=int(256 * width),
@@ -79,7 +79,7 @@ class YOLOXHead(nn.Module):
                             act=act,
                         ),
                         #tag lyx
-                        shortcutSE(int(256 * width))
+                        # shortcutSE(int(256 * width))
                     ]
                 )
             )

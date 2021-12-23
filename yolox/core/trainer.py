@@ -212,7 +212,7 @@ class Trainer:
             self.tblogger = SummaryWriter(os.path.join(self.file_name, self.timestamp) )
 
         logger.info("Training start...")
-        # logger.info("\n{}".format(self.model))
+        logger.info("\n{}".format(self.model))
 
     def after_train(self):
         logger.info(
