@@ -27,12 +27,13 @@ class Exp(MyExp):
         self.num_classes = 2
         self.no_aug_epochs = 20
 
+
         self.ema = False
         self.max_epoch = 300
         self.data_num_workers = 8
         self.eval_interval = 1
         self.input_size = (768, 768)
-
+        # self.test_size = (768, 768)
 
     def get_model(self):
         from yolox.models import YOLOX, YOLOPAFPN, YOLOXHead
